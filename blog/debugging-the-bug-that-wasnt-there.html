@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Debugging the Bug That Wasn't There — Shayan Hassan DeV</title>
+<meta name="description" content="A screenshot tool kept showing a broken sticky navbar. The DOM insisted it was fine. A story about trusting getBoundingClientRect over a picture, and what that says about debugging in general.">
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCc+CjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0nZycgeDE9JzAnIHkxPScwJyB4Mj0nMScgeTI9JzEnPgo8c3RvcCBvZmZzZXQ9JzAlJyBzdG9wLWNvbG9yPScjN2MzYWVkJy8+PHN0b3Agb2Zmc2V0PSc1NSUnIHN0b3AtY29sb3I9JyNlYzQ4OTknLz48c3RvcCBvZmZzZXQ9JzEwMCUnIHN0b3AtY29sb3I9JyNmOTczMTYnLz4KPC9saW5lYXJHcmFkaWVudD48L2RlZnM+CjxyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE2JyBmaWxsPSd1cmwoI2cpJy8+Cjx0ZXh0IHg9JzMyJyB5PSc0MicgZm9udC1mYW1pbHk9J0FyaWFsLCBzYW5zLXNlcmlmJyBmb250LXdlaWdodD0nODAwJyBmb250LXNpemU9JzI2JyBmaWxsPSd3aGl0ZScgdGV4dC1hbmNob3I9J21pZGRsZSc+U0g8L3RleHQ+Cjwvc3ZnPg==">
+<link rel="stylesheet" href="../styles.css">
+<meta name="google-adsense-account" content="ca-pub-3437112698206021">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3437112698206021" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html">
+      <span class="monogram">SH</span>
+      <span class="brand-name">Shayan Hassan DeV</span>
+    </a>
+    <div class="nav-ctas">
+      <a class="btn btn-ghost nav-cta" href="index.html">← All posts</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="section article">
+    <div class="article-header">
+      <span class="blog-card-date">August 2026 · 8 min read</span>
+      <h1>Debugging the Bug That Wasn't There</h1>
+      <div class="tags">
+        <span class="tag">Debugging</span>
+        <span class="tag">CSS</span>
+        <span class="tag">position: sticky</span>
+      </div>
+    </div>
+
+    <img class="article-hero-image" src="../assets/blog-personal-hero.png" alt="This site's hero section — the page whose navbar I spent an afternoon debugging">
+
+    <div class="article-body">
+      <p>This site has a sticky navbar — the kind that stays pinned to the top of the screen while you scroll. Standard, boring CSS: <code>position: sticky; top: 0;</code>. While building it, I took a screenshot to check how it looked after scrolling down the page, and the navbar was nowhere near the top. It was sitting in the middle of the screenshot, at roughly the same distance down as I'd scrolled — as if it had never stuck to anything at all.</p>
+
+      <p>So I "fixed" it. Then fixed it again. Then started doubting whether <code>position: sticky</code> even worked the way I thought it did.</p>
+
+      <h2>The instinct that wasted the first twenty minutes</h2>
+      <p>My first move was to distrust the CSS. I added <code>transform: translateZ(0)</code> and <code>will-change: transform</code> — the standard incantation for "force this element onto its own compositor layer," which fixes a real, if uncommon, class of Chromium rendering glitches. I took another screenshot. Identical result, down to the byte size of the PNG. That should have been the first clue: an actual rendering fix changing zero pixels usually means the fix was aimed at the wrong layer of the problem entirely.</p>
+
+      <h2>The question I should have asked first</h2>
+      <p>Eventually I stopped changing CSS and asked a more basic question: is the navbar actually mispositioned, or does it just look that way in this specific screenshot? Those are different bugs with different fixes, and I'd been assuming the answer without checking.</p>
+      <p>The way to check is to stop looking at pictures and ask the browser directly:</p>
+      <pre><code>const nav = document.querySelector('.nav');
+console.log({
+  scrollY: window.scrollY,
+  navTop: nav.getBoundingClientRect().top,
+  position: getComputedStyle(nav).position,
+});
+// { scrollY: 1000, navTop: 0, position: "sticky" }</code></pre>
+      <p><code>navTop: 0</code>, at every scroll position I tried. According to the browser's own layout engine — not a picture of the browser, the actual engine — the navbar was exactly where it was supposed to be. The bug wasn't in the CSS. It was in whatever was taking the screenshot.</p>
+
+      <h2>Why that's an uncomfortable thing to find out</h2>
+      <p>A screenshot feels like ground truth. It's a picture of the actual pixels the actual browser actually drew — what could be more authoritative than that? But a screenshot is also just another piece of software, with its own capture pipeline, its own timing assumptions, its own bugs. In my case, it turned out to be a headless rendering environment that intermittently failed to recomposite a stuck sticky element after certain kinds of scroll events — a real, if obscure, limitation of that specific tool, not of the page it was capturing.</p>
+      <p>I only found that by refusing to trust the picture and going one layer deeper: <code>getBoundingClientRect()</code> is a direct question to the browser's layout engine, and it doesn't go through a screenshot compositor at all. Once the two sources disagreed, one of them had to be wrong, and only one of them was actually measuring the thing I cared about.</p>
+
+      <h2>The general lesson</h2>
+      <p>"Trust but verify" usually gets applied to code — don't trust that a function works, write a test. It applies just as much to your tools. A debugger, a screenshot, a monitoring dashboard, a log line: each one is a claim about reality, made by software that can itself be wrong, stale, or measuring something slightly different from what you think it's measuring. When two sources of truth disagree, the fix isn't to keep patching based on the one that's easiest to look at. It's to find a third, more direct source — the actual DOM, the actual network request, the actual database row — and let that arbitrate.</p>
+      <p>In this case, that meant trusting four lines of console output over a stack of screenshots. The navbar was never broken. My belief that the screenshot was accurate was the actual bug, and it was the only one I needed to fix.</p>
+    </div>
+
+    <div class="article-footer">
+      <a class="btn btn-primary" href="../index.html">Back to the homepage →</a>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span>© 2026 Shayan Hassan DeV</span>
+    <div class="footer-links">
+      <a href="https://github.com/shayan429" target="_blank" rel="noopener">GitHub</a>
+      <a href="index.html">Blog</a>
+      <a href="../index.html#contact">Contact</a>
+      <a href="../privacy.html">Privacy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

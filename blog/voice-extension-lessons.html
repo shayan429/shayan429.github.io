@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What I Learned Building a Voice Translation Chrome Extension — Shayan Hassan DeV</title>
+<meta name="description" content="Real lessons from building Voice Translate & Dictate: why speech recognition stops itself, how to target the right iframe, and what to do when a site won't let you type into it.">
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCc+CjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0nZycgeDE9JzAnIHkxPScwJyB4Mj0nMScgeTI9JzEnPgo8c3RvcCBvZmZzZXQ9JzAlJyBzdG9wLWNvbG9yPScjN2MzYWVkJy8+PHN0b3Agb2Zmc2V0PSc1NSUnIHN0b3AtY29sb3I9JyNlYzQ4OTknLz48c3RvcCBvZmZzZXQ9JzEwMCUnIHN0b3AtY29sb3I9JyNmOTczMTYnLz4KPC9saW5lYXJHcmFkaWVudD48L2RlZnM+CjxyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE2JyBmaWxsPSd1cmwoI2cpJy8+Cjx0ZXh0IHg9JzMyJyB5PSc0MicgZm9udC1mYW1pbHk9J0FyaWFsLCBzYW5zLXNlcmlmJyBmb250LXdlaWdodD0nODAwJyBmb250LXNpemU9JzI2JyBmaWxsPSd3aGl0ZScgdGV4dC1hbmNob3I9J21pZGRsZSc+U0g8L3RleHQ+Cjwvc3ZnPg==">
+<link rel="stylesheet" href="../styles.css">
+<meta name="google-adsense-account" content="ca-pub-3437112698206021">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3437112698206021" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html">
+      <span class="monogram">SH</span>
+      <span class="brand-name">Shayan Hassan DeV</span>
+    </a>
+    <div class="nav-ctas">
+      <a class="btn btn-ghost nav-cta" href="index.html">← All posts</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="section article">
+    <div class="article-header">
+      <span class="blog-card-date">August 2026 · 7 min read</span>
+      <h1>What I Learned Building a Voice Translation Chrome Extension</h1>
+      <div class="tags">
+        <span class="tag">Chrome Extensions</span>
+        <span class="tag">Web Speech API</span>
+        <span class="tag">JavaScript</span>
+      </div>
+    </div>
+
+    <img class="article-hero-image" src="../assets/voice-translate-screenshot.png" alt="Voice Translate & Dictate's side panel, showing the language pickers, live 'You said' transcript, and Speak/Copy/Insert/Clear actions">
+
+    <div class="article-body">
+      <p>Voice Translate &amp; Dictate does one thing: you speak, it transcribes what you said, translates it, and types the translation into whatever field you were using — even if that field is buried three iframes deep in a chat widget. The idea took an afternoon to explain. Getting it to actually work reliably took a lot longer, and almost none of the hard parts were where I expected them to be.</p>
+
+      <h2>Speech recognition stops itself, and it won't tell you why</h2>
+      <p>Chrome's <code>SpeechRecognition</code> API is genuinely good — it's the same engine behind native dictation — but it has one behavior that catches everyone off guard the first time: it stops listening on its own after a pause in speech, with no error, no event you can obviously hook into as "the user is done." If you don't handle this, your extension looks broken the moment someone takes a breath mid-sentence.</p>
+      <p>The fix isn't complicated once you know to look for it, but it took some trial and error to get right: listen for the <code>end</code> event, and if the user hasn't explicitly stopped, restart the recognizer automatically. The part that actually matters is the backoff. Restarting instantly, every time, sounds fine until the recognizer itself fails to initialize for some transient reason — then you're in a tight restart loop burning CPU and spamming the browser. A short, increasing delay between restart attempts (and rebuilding the recognizer object entirely if a restart itself throws) turned an occasionally-flaky feature into one that just quietly works.</p>
+
+      <h2>The field you want to type into might not be in the page you're looking at</h2>
+      <p>This one surprised me. A lot of real interfaces — comment boxes, embedded chat widgets, form builders — aren't in the page's main document at all. They're inside a nested <code>&lt;iframe&gt;</code>, sometimes more than one layer deep. A content script that only looks at the top-level frame will confidently type your translation into nothing, or into the wrong field, and give no indication anything went wrong.</p>
+      <p>The extension now injects into every frame on the page (<code>all_frames: true</code> in the manifest), and each frame independently reports when one of its own fields gets focused. The background service worker just remembers the most recent "this tab, this frame" pairing, so when it's time to insert text, it knows exactly which frame actually holds the cursor — not just which page the user is on.</p>
+
+      <h2>Some sites will never let you type into them, and pretending otherwise is worse than admitting it</h2>
+      <p>Google Docs, Sheets, and Slides don't use real text fields. They render the document themselves and capture keystrokes through an invisible, internal input that isn't part of the visible page — so there's no reliable DOM node to insert text into, no matter how the content script is written. Chrome's own internal pages (<code>chrome://settings</code>, the New Tab Page, the Web Store) are worse: no extension is allowed to inject into them at all. That's a platform rule, not a bug to route around.</p>
+      <p>The honest fix was to stop pretending. When direct typing fails, the extension copies the translation to the clipboard automatically and tells the user exactly that — "paste with Ctrl+V" — instead of silently doing nothing and letting them assume it's broken. A feature that fails loudly and gives you a fallback is far more trustworthy than one that fails silently and makes you doubt yourself.</p>
+
+      <h2>Fast speech can arrive out of order if you're not careful</h2>
+      <p>Each chunk of recognized speech gets sent off to be translated independently, which means the translation requests are asynchronous and racing each other. If someone talks quickly, there's no guarantee the translation for "chunk 2" comes back before "chunk 1" — and if you just append results as they arrive, you get scrambled output. The fix is a small in-order queue: chunks are translated one at a time, in the sequence they were spoken, with automatic retry (capped at three attempts) if a request drops. It's an unglamorous piece of infrastructure, but it's the difference between an extension that feels reliable and one that occasionally produces nonsense.</p>
+
+      <h2>The takeaway</h2>
+      <p>None of these problems showed up in the initial version, or in a quick demo. They showed up after real use — a comment box inside an iframe, a pause mid-sentence, a page that quietly refused input. Building something that handles speech and arbitrary websites means accepting that the platform will misbehave in specific, learnable ways, and that the job is mostly about noticing which failure you're looking at and building the right fallback for it.</p>
+    </div>
+
+    <div class="article-footer">
+      <a class="btn btn-primary" href="../index.html#projects">See the project →</a>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span>© 2026 Shayan Hassan DeV</span>
+    <div class="footer-links">
+      <a href="https://github.com/shayan429" target="_blank" rel="noopener">GitHub</a>
+      <a href="index.html">Blog</a>
+      <a href="../index.html#contact">Contact</a>
+      <a href="../privacy.html">Privacy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

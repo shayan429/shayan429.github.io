@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why You Can't Put an "Install Extension" Button on Your Website — Shayan Hassan DeV</title>
+<meta name="description" content="Chrome won't let any website install an extension with one click, on purpose. Here's the actual security model, and the closest thing that's allowed — externally_connectable and the Chrome Web Store.">
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCA2NCA2NCc+CjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0nZycgeDE9JzAnIHkxPScwJyB4Mj0nMScgeTI9JzEnPgo8c3RvcCBvZmZzZXQ9JzAlJyBzdG9wLWNvbG9yPScjN2MzYWVkJy8+PHN0b3Agb2Zmc2V0PSc1NSUnIHN0b3AtY29sb3I9JyNlYzQ4OTknLz48c3RvcCBvZmZzZXQ9JzEwMCUnIHN0b3AtY29sb3I9JyNmOTczMTYnLz4KPC9saW5lYXJHcmFkaWVudD48L2RlZnM+CjxyZWN0IHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgcng9JzE2JyBmaWxsPSd1cmwoI2cpJy8+Cjx0ZXh0IHg9JzMyJyB5PSc0MicgZm9udC1mYW1pbHk9J0FyaWFsLCBzYW5zLXNlcmlmJyBmb250LXdlaWdodD0nODAwJyBmb250LXNpemU9JzI2JyBmaWxsPSd3aGl0ZScgdGV4dC1hbmNob3I9J21pZGRsZSc+U0g8L3RleHQ+Cjwvc3ZnPg==">
+<link rel="stylesheet" href="../styles.css">
+<meta name="google-adsense-account" content="ca-pub-3437112698206021">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3437112698206021" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="../index.html">
+      <span class="monogram">SH</span>
+      <span class="brand-name">Shayan Hassan DeV</span>
+    </a>
+    <div class="nav-ctas">
+      <a class="btn btn-ghost nav-cta" href="index.html">← All posts</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="section article">
+    <div class="article-header">
+      <span class="blog-card-date">August 2026 · 6 min read</span>
+      <h1>Why You Can't Put an "Install Extension" Button on Your Website</h1>
+      <div class="tags">
+        <span class="tag">Chrome Extensions</span>
+        <span class="tag">Browser Security</span>
+        <span class="tag">Web Platform</span>
+      </div>
+    </div>
+
+    <img class="article-hero-image" src="../assets/blog-install-section.png" alt="The Install Voice Translate button on the extension's own landing page">
+
+    <div class="article-body">
+      <p>When I built the landing page for Voice Translate &amp; Dictate, I wanted the obvious thing: a big "Install" button that adds the extension to Chrome right there, on my own site, in one click. That's how it works for apps, for browser bookmarklets, for basically everything else on the web. I assumed extensions would be the same. They aren't, and once I understood why, I stopped trying to work around it.</p>
+
+      <h2>The short version</h2>
+      <p>No website — mine, yours, anyone's — can trigger a Chrome extension install. The only place that install action can happen is on a page under <code>chromewebstore.google.com</code>, after the extension has passed Google's review, on an explicit click from the user, on that domain. This isn't a missing feature or an oversight. It's enforced inside the browser itself, and there's no API, flag, or clever trick that gets around it from a third-party page.</p>
+
+      <h2>Why the restriction exists</h2>
+      <p>Think about what a one-click install button from any website would actually enable: any page you visit could push arbitrary code into your browser, with full extension permissions, the moment you clicked something that looked like a normal button. Extensions can read page content, intercept requests, and in many cases see everything you type. A "one click and you're infected" install path from arbitrary websites would be one of the most effective malware distribution mechanisms ever built into a browser. So Chrome doesn't allow it, full stop.</p>
+      <p>This used to be slightly different. Chrome had an <code>chrome.webstore.install()</code> API that let some Web Store installs happen from a third-party page — "inline installation." Google removed it in 2018, specifically because it was being abused to trick people into installing malicious extensions from pages designed to look trustworthy. The current, stricter model is a direct response to that.</p>
+
+      <h2>What actually happens when someone installs your extension</h2>
+      <p>The real flow looks like this: your website links to your extension's Chrome Web Store listing. The user clicks through, lands on a Google-hosted page, and clicks "Add to Chrome" there — not on your site. Chrome shows its own permissions dialog. If they accept, the extension installs. It's not "one click from your homepage," it's "one click, one page away, on a domain Chrome trusts." That's the ceiling. Nothing you build client-side moves that ceiling.</p>
+
+      <h2>The part that surprised me: you can still know when it's installed</h2>
+      <p>Once I accepted the install button had to leave my site, I wanted the next best thing: detect when the extension was actually installed, so the button could change from "Install" to "Installed" without the visitor doing anything else. This part <em>is</em> possible, and it's genuinely useful.</p>
+      <p>Manifest V3 has a field called <code>externally_connectable</code> that lets an extension declare which external websites are allowed to send it messages:</p>
+      <pre><code>"externally_connectable": {
+  "matches": ["https://your-site.example/*"]
+}</code></pre>
+      <p>With that in place, your website can ping the extension directly:</p>
+      <pre><code>chrome.runtime.sendMessage(EXTENSION_ID, { type: 'ping' }, (response) => {
+  const installed = !chrome.runtime.lastError &amp;&amp; response?.installed;
+});</code></pre>
+      <p>If the extension is installed and answers, you know. If it's not installed, <code>chrome.runtime</code> won't even exist on the page, or the call will fail silently — either way, you can detect "not installed" without lying about it. No permissions are granted to your website in the process; the extension only replies to origins it explicitly listed.</p>
+
+      <h2>What I ended up building</h2>
+      <p>The install button on the Voice Translate &amp; Dictate site does exactly what's actually possible, honestly: it detects your browser (Chrome, Edge, or unsupported), links out to the real Chrome Web Store listing once it exists, and — if the extension answers a ping — flips to a green "✓ Installed" state with an "Open" action instead. Nothing on the page claims to install anything it doesn't. That constraint turned out to make for a more trustworthy button than the fantasy version I started out wanting.</p>
+    </div>
+
+    <div class="article-footer">
+      <a class="btn btn-primary" href="../index.html#projects">See the project →</a>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span>© 2026 Shayan Hassan DeV</span>
+    <div class="footer-links">
+      <a href="https://github.com/shayan429" target="_blank" rel="noopener">GitHub</a>
+      <a href="index.html">Blog</a>
+      <a href="../index.html#contact">Contact</a>
+      <a href="../privacy.html">Privacy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
